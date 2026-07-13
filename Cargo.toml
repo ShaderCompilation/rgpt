@@ -1,6 +1,11 @@
 [package]
 name = "rgpt"
 version = "0.1.0"
+description = "A fast, local-model-friendly CLI for LLM chat completions"
+homepage = "https://github.com/ShaderCompilation/rgpt"
+repository = "https://github.com/ShaderCompilation/rgpt"
+keywords = ["llm", "cli", "ollama", "openai", "chat"]
+categories = ["command-line-utilities"]
 edition = "2024"
 
 [dependencies]
@@ -12,3 +17,8 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 thiserror = "2.0.18"
 ureq = { version = "3.3.0", features = ["json"] }
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
