@@ -31,6 +31,16 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 
 The installer places `rgpt` in `$CARGO_HOME/bin` (normally `~/.cargo/bin`). Add that directory to your `PATH` if it is not already present. You can also download an archive for a specific release from the [Releases page](https://github.com/ShaderCompilation/rgpt/releases).
 
+### Uninstall
+
+Run the installed command and confirm the prompt:
+
+```sh
+rgpt --uninstall
+```
+
+This removes the executable plus rgpt's configuration, saved chats, roles, and response cache. For a non-interactive uninstall, use `rgpt --uninstall --yes`.
+
 ### Build from source
 
 To build locally, install a current stable Rust toolchain, then run:

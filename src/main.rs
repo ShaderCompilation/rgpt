@@ -9,6 +9,7 @@ mod render;
 mod role;
 mod shell_cmd;
 mod tools;
+mod uninstall;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -22,6 +23,10 @@ use role::SystemRole;
 fn main() -> Result<()> {
     let cli = cli::Cli::parse();
     cli.validate()?;
+
+    if cli.uninstall {
+        return uninstall::run(cli.yes);
+    }
 
     let config = Config::load(cli.ollama).context("loading config")?;
     SystemRole::ensure_defaults(&config).context("creating default roles")?;

@@ -27,6 +27,14 @@ pub struct Cli {
     #[arg(long, help_heading = "Assistance Options")]
     pub editor: bool,
 
+    /// Remove rgpt, including its saved configuration, chats, roles, and cache.
+    #[arg(long, help_heading = "Application Options")]
+    pub uninstall: bool,
+
+    /// Do not ask for confirmation when uninstalling.
+    #[arg(long, requires = "uninstall", help_heading = "Application Options")]
+    pub yes: bool,
+
     /// Large language model to use.
     #[arg(long)]
     pub model: Option<String>,

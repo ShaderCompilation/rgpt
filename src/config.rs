@@ -134,7 +134,11 @@ impl Config {
     }
 }
 
-fn config_path() -> Result<PathBuf> {
+pub fn app_dir() -> Result<PathBuf> {
     let base = dirs::config_dir().context("could not determine config directory")?;
-    Ok(base.join("rgpt").join(".rgptrc"))
+    Ok(base.join("rgpt"))
+}
+
+fn config_path() -> Result<PathBuf> {
+    Ok(app_dir()?.join(".rgptrc"))
 }
