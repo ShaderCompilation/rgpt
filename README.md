@@ -79,21 +79,31 @@ rgpt --model "my-local-model" "Summarize this log"
 
 ### Ollama
 
+> Sidenote: Works decent with `qwen3.5:9b` and `qwen2.5-coder:7b`. Currently testing `qwen3:4b`, which also seems to work relatively well
+
 With [Ollama](https://ollama.com/) running locally and a model downloaded:
 
 ```sh
-ollama pull llama3.2
-rgpt --ollama --model llama3.2 "Explain this Rust compiler error in one paragraph"
+ollama pull qwen3.5:9b
+rgpt --ollama --model qwen3.5:9b "Explain this Rust compiler error in one paragraph"
 ```
 
 Native Ollama mode exposes controls useful for local models:
 
 ```sh
-rgpt --ollama --model llama3.2 --num-ctx 8192 --num-predict 400 --keep-alive 10m \
+rgpt --ollama --model qwen3.5:9b --num-ctx 8192 --num-predict 400 --keep-alive 10m \
   "Give me a plan for adding tests to this crate"
 ```
 
 Use `OLLAMA_BASE_URL` to point at a remote or non-default Ollama host. Set `USE_OLLAMA=true` if Ollama should be your default backend.
+
+I'd recommend to also add aliases like:
+
+```bash
+alias srgpt='rgpt --ollama --model qwen3.5:9b -s'
+alias srgpt-fast='rgpt --ollama --model qwen3:4b -s'
+alias srgpt-code='rgpt --ollama --model qwen2.5-coder:7b -s'
+```
 
 ## Everyday usage
 
