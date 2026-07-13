@@ -3,6 +3,7 @@ mod chat;
 mod cli;
 mod client;
 mod config;
+mod debug;
 mod editor;
 mod handler;
 mod render;
@@ -17,6 +18,7 @@ use clap::Parser;
 use chat::ChatSession;
 use client::{LlmClient, OllamaClient, OllamaOptions, OpenAiCompatClient};
 use config::Config;
+use debug::DebugLog;
 use handler::{ChatHandler, CompletionParams, DefaultHandler, ReplHandler};
 use role::SystemRole;
 
@@ -101,6 +103,8 @@ fn main() -> Result<()> {
         .parse()
         .context("parsing MAX_CONTEXT_TOKENS from config")?;
 
+    let debug_log = if cli.debug { Some(DebugLog::new()?) } else { None };
+
     let use_ollama = cli.ollama || config.get("USE_OLLAMA")? == "true";
     let ollama_options = OllamaOptions {
         num_ctx: cli.num_ctx.or_else(|| {
@@ -138,9 +142,19 @@ fn main() -> Result<()> {
         enable_tools: !(cli.shell || cli.describe_shell),
     };
 
+    if let Some(log) = &debug_log {
+        log.section(
+            "SESSION",
+            &format!(
+                "model={}\ntemperature={temperature}\ntop_p={}\nstream={stream}\nthink={}\nuse_ollama={use_ollama}",
+                params.model, cli.top_p, cli.think
+            ),
+        );
+    }
+
     let client: Box<dyn LlmClient> = if use_ollama {
         let ollama_base_url = config.get("OLLAMA_BASE_URL")?;
-        Box::new(OllamaClient::new(&ollama_base_url, timeout))
+        Box::new(OllamaClient::new(&ollama_base_url, timeout, debug_log))
     } else {
         let api_key = config.get("OPENAI_API_KEY")?;
         let base_url = config.get("API_BASE_URL")?;
@@ -149,7 +163,9 @@ fn main() -> Result<()> {
         } else {
             base_url
         };
-        Box::new(OpenAiCompatClient::new(&base_url, &api_key, timeout))
+        Box::new(OpenAiCompatClient::new(
+            &base_url, &api_key, timeout, debug_log,
+        ))
     };
 
     if let Some(chat_id) = cli.repl.clone() {

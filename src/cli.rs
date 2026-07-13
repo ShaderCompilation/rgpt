@@ -35,6 +35,11 @@ pub struct Cli {
     #[arg(long, requires = "uninstall", help_heading = "Application Options")]
     pub yes: bool,
 
+    /// Log every request/response exchanged with the model, verbatim, to a
+    /// rgpt-debug-<timestamp>.log file in the current directory.
+    #[arg(long, help_heading = "Application Options")]
+    pub debug: bool,
+
     /// Large language model to use.
     #[arg(long)]
     pub model: Option<String>,

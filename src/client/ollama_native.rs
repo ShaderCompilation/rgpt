@@ -5,6 +5,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use super::{ChatMessage, ChatRequest, Completion, LlmClient, ToolCall};
+use crate::debug::DebugLog;
 
 /// Talks to Ollama's native `/api/chat` endpoint directly, rather than
 /// through its OpenAI-compatible shim, so `num_ctx`/`num_predict`/`keep_alive`
@@ -12,6 +13,7 @@ use super::{ChatMessage, ChatRequest, Completion, LlmClient, ToolCall};
 pub struct OllamaClient {
     agent: ureq::Agent,
     base_url: String,
+    debug: Option<DebugLog>,
 }
 
 #[derive(Serialize)]
@@ -101,7 +103,7 @@ struct OllamaChunk {
 }
 
 impl OllamaClient {
-    pub fn new(base_url: &str, timeout_secs: u64) -> Self {
+    pub fn new(base_url: &str, timeout_secs: u64, debug: Option<DebugLog>) -> Self {
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(timeout_secs)))
             .http_status_as_error(false)
@@ -110,6 +112,7 @@ impl OllamaClient {
         Self {
             agent,
             base_url: base_url.trim_end_matches('/').to_string(),
+            debug,
         }
     }
 }
@@ -136,6 +139,16 @@ impl LlmClient for OllamaClient {
             think: request.think,
         };
 
+        if let Some(log) = &self.debug {
+            log.section(
+                "REQUEST",
+                &format!(
+                    "POST {url}\n{}",
+                    serde_json::to_string_pretty(&wire).unwrap_or_default()
+                ),
+            );
+        }
+
         let response = self
             .agent
             .post(&url)
@@ -148,6 +161,9 @@ impl LlmClient for OllamaClient {
         if !status.is_success() {
             let mut body = String::new();
             std::io::Read::read_to_string(&mut reader, &mut body).ok();
+            if let Some(log) = &self.debug {
+                log.section("ERROR RESPONSE", &format!("status {status}\n{body}"));
+            }
             bail!("request to {url} failed with status {status}: {body}");
         }
 
@@ -165,6 +181,9 @@ impl LlmClient for OllamaClient {
             let line = line.trim();
             if line.is_empty() {
                 continue;
+            }
+            if let Some(log) = &self.debug {
+                log.line("RECV", line);
             }
             let chunk: OllamaChunk = serde_json::from_str(line)
                 .with_context(|| format!("parsing Ollama chunk: {line}"))?;
@@ -186,6 +205,10 @@ impl LlmClient for OllamaClient {
             if chunk.done {
                 break;
             }
+        }
+
+        if let Some(log) = &self.debug {
+            log.section("PARSED COMPLETION", &format!("{completion:#?}"));
         }
 
         Ok(completion)

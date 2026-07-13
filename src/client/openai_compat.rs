@@ -6,11 +6,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use super::{ChatRequest, Completion, LlmClient, ToolCall};
+use crate::debug::DebugLog;
 
 pub struct OpenAiCompatClient {
     agent: ureq::Agent,
     base_url: String,
     api_key: String,
+    debug: Option<DebugLog>,
 }
 
 #[derive(Deserialize)]
@@ -114,7 +116,7 @@ struct Chunk {
 }
 
 impl OpenAiCompatClient {
-    pub fn new(base_url: &str, api_key: &str, timeout_secs: u64) -> Self {
+    pub fn new(base_url: &str, api_key: &str, timeout_secs: u64, debug: Option<DebugLog>) -> Self {
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(timeout_secs)))
             .http_status_as_error(false)
@@ -124,6 +126,7 @@ impl OpenAiCompatClient {
             agent,
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
+            debug,
         }
     }
 }
@@ -135,24 +138,34 @@ impl LlmClient for OpenAiCompatClient {
         on_delta: &mut dyn FnMut(&str),
     ) -> Result<Completion> {
         let url = format!("{}/chat/completions", self.base_url);
+        let body = OpenAiRequest {
+            model: &request.model,
+            temperature: request.temperature,
+            top_p: request.top_p,
+            messages: request.messages.iter().map(openai_message).collect(),
+            stream: request.stream,
+            tools: request.tools.as_deref(),
+            // Thinking is opt-in; leave the server's default alone
+            // instead of forcing a specific effort level when enabled.
+            reasoning_effort: (!request.think).then_some("minimal"),
+            chat_template_kwargs: (!request.think).then_some(ChatTemplateKwargs {
+                enable_thinking: false,
+            }),
+        };
+        if let Some(log) = &self.debug {
+            log.section(
+                "REQUEST",
+                &format!(
+                    "POST {url}\n{}",
+                    serde_json::to_string_pretty(&body).unwrap_or_default()
+                ),
+            );
+        }
         let response = self
             .agent
             .post(&url)
             .header("Authorization", &format!("Bearer {}", self.api_key))
-            .send_json(&OpenAiRequest {
-                model: &request.model,
-                temperature: request.temperature,
-                top_p: request.top_p,
-                messages: request.messages.iter().map(openai_message).collect(),
-                stream: request.stream,
-                tools: request.tools.as_deref(),
-                // Thinking is opt-in; leave the server's default alone
-                // instead of forcing a specific effort level when enabled.
-                reasoning_effort: (!request.think).then_some("minimal"),
-                chat_template_kwargs: (!request.think).then_some(ChatTemplateKwargs {
-                    enable_thinking: false,
-                }),
-            })
+            .send_json(&body)
             .with_context(|| format!("sending request to {url}"))?;
 
         let status = response.status();
@@ -161,6 +174,9 @@ impl LlmClient for OpenAiCompatClient {
         if !status.is_success() {
             let mut body = String::new();
             std::io::Read::read_to_string(&mut reader, &mut body).ok();
+            if let Some(log) = &self.debug {
+                log.section("ERROR RESPONSE", &format!("status {status}\n{body}"));
+            }
             bail!("request to {url} failed with status {status}: {body}");
         }
 
@@ -174,6 +190,9 @@ impl LlmClient for OpenAiCompatClient {
                 break;
             }
             let line = line.trim_end();
+            if let Some(log) = &self.debug {
+                log.line("RECV", line);
+            }
             let Some(data) = line.strip_prefix("data: ") else {
                 continue;
             };
@@ -210,6 +229,10 @@ impl LlmClient for OpenAiCompatClient {
                 name,
                 arguments,
             });
+        }
+
+        if let Some(log) = &self.debug {
+            log.section("PARSED COMPLETION", &format!("{completion:#?}"));
         }
 
         Ok(completion)
