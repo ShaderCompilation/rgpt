@@ -125,6 +125,11 @@ fn main() -> Result<()> {
             .get("CACHE_LENGTH")?
             .parse()
             .context("parsing CACHE_LENGTH from config")?,
+        // Shell/describe-shell modes run their own confirm-and-execute flow
+        // over the raw text completion; offering the execute_shell_command
+        // tool on top of that let the model run the command itself before
+        // the text flow ran it again.
+        enable_tools: !(cli.shell || cli.describe_shell),
     };
 
     let client: Box<dyn LlmClient> = if use_ollama {

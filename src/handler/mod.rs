@@ -24,6 +24,11 @@ pub struct CompletionParams {
     pub ollama_options: OllamaOptions,
     pub no_interaction: bool,
     pub cache_length: usize,
+    /// Shell/describe-shell modes generate a raw command as text and run it
+    /// through their own confirm-and-execute flow; offering the model the
+    /// `execute_shell_command` tool at the same time would let it execute the
+    /// command itself, and then the text flow would execute it again.
+    pub enable_tools: bool,
 }
 
 /// Runs a completion and any requested built-in tools iteratively. Unlike the
@@ -55,7 +60,7 @@ pub(crate) fn complete_with_tools(
             top_p: params.top_p,
             messages: messages.clone(),
             stream: params.stream,
-            tools: Some(tools::definitions()),
+            tools: params.enable_tools.then(tools::definitions),
             ollama_options: params.ollama_options.clone(),
         };
         let completion = if params.stream {
@@ -163,6 +168,7 @@ mod tests {
             ollama_options: OllamaOptions::default(),
             no_interaction: true,
             cache_length: 0,
+            enable_tools: true,
         };
         let (text, _) = complete_with_tools(
             &client,
