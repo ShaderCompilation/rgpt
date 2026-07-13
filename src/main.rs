@@ -2,9 +2,11 @@ mod chat;
 mod cli;
 mod client;
 mod config;
+mod editor;
 mod handler;
 mod render;
 mod role;
+mod shell_cmd;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -47,7 +49,15 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let prompt = cli::resolve_prompt(cli.prompt.as_deref())?;
+    let resolved_prompt = cli::resolve_prompt(cli.prompt.as_deref())?;
+    if cli.editor && resolved_prompt.stdin_was_piped {
+        anyhow::bail!("--editor cannot be used with stdin input");
+    }
+    let prompt = if cli.editor {
+        editor::edited_prompt()?
+    } else {
+        resolved_prompt.prompt
+    };
     if prompt.is_empty() && cli.repl.is_none() {
         anyhow::bail!("no prompt provided (pass an argument or pipe input via stdin)");
     }
@@ -55,6 +65,9 @@ fn main() -> Result<()> {
     let explicit_role = cli.role.is_some();
     let role = match &cli.role {
         Some(name) => SystemRole::get(name)?,
+        None if cli.shell => SystemRole::get(role::SHELL_ROLE_NAME)?,
+        None if cli.describe_shell => SystemRole::get(role::DESCRIBE_SHELL_ROLE_NAME)?,
+        None if cli.code => SystemRole::get(role::CODE_ROLE_NAME)?,
         None => SystemRole::get(role::DEFAULT_ROLE_NAME)?,
     };
 
@@ -122,29 +135,80 @@ fn main() -> Result<()> {
     };
 
     if let Some(chat_id) = cli.repl.clone() {
-        let handler = ReplHandler::new(client.as_ref(), color, chat_id)?;
+        let mut handler = ReplHandler::new(
+            client.as_ref(),
+            color,
+            chat_id,
+            cli.shell,
+            resolved_prompt.repl_input,
+        )?;
         handler.handle(
             &prompt,
             &role,
             explicit_role,
-            params,
+            params.clone(),
             cache_length,
             max_context_tokens,
         )?;
     } else if let Some(chat_id) = cli.chat.clone() {
-        let handler = ChatHandler::new(client.as_ref(), color, chat_id)?;
-        handler.handle(
+        let handler = ChatHandler::new(client.as_ref(), color.clone(), chat_id)?;
+        let mut completion = handler.handle(
             &prompt,
             &role,
             explicit_role,
-            params,
+            params.clone(),
             cache_length,
             max_context_tokens,
         )?;
+        if cli.shell && !cli.no_interaction {
+            shell_confirmation_loop(client.as_ref(), &color, &mut completion, &params)?;
+        }
     } else {
-        let handler = DefaultHandler::new(client.as_ref(), color);
-        handler.handle(&prompt, &role, params)?;
+        let handler = DefaultHandler::new(client.as_ref(), color.clone());
+        let mut completion = handler.handle(&prompt, &role, params.clone())?;
+        if cli.shell && !cli.no_interaction {
+            shell_confirmation_loop(client.as_ref(), &color, &mut completion, &params)?;
+        }
     }
 
     Ok(())
+}
+
+fn shell_confirmation_loop(
+    client: &dyn LlmClient,
+    color: &str,
+    completion: &mut String,
+    params: &CompletionParams,
+) -> Result<()> {
+    use std::io::Write;
+    loop {
+        print!("[E]xecute, [M]odify, [D]escribe, [A]bort: ");
+        std::io::stdout().flush().ok();
+        let mut answer = String::new();
+        if std::io::stdin().read_line(&mut answer)? == 0 {
+            return Ok(());
+        }
+        match answer.trim().to_ascii_lowercase().as_str() {
+            "e" | "y" | "execute" => return shell_cmd::run(completion),
+            "m" | "modify" => {
+                print!("Command: ");
+                std::io::stdout().flush().ok();
+                let mut edited = String::new();
+                if std::io::stdin().read_line(&mut edited)? == 0 {
+                    return Ok(());
+                }
+                *completion = edited.trim().to_string();
+            }
+            "d" | "describe" => {
+                let descriptor = SystemRole::get(role::DESCRIBE_SHELL_ROLE_NAME)?;
+                DefaultHandler::new(client, color.to_string()).handle(
+                    completion,
+                    &descriptor,
+                    params.clone(),
+                )?;
+            }
+            "a" | "abort" | "" => return Ok(()),
+            _ => eprintln!("Please choose E, M, D, or A."),
+        }
+    }
 }

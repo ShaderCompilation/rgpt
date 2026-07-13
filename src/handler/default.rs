@@ -19,7 +19,12 @@ impl<'a> DefaultHandler<'a> {
         }
     }
 
-    pub fn handle(&self, prompt: &str, role: &SystemRole, params: CompletionParams) -> Result<()> {
+    pub fn handle(
+        &self,
+        prompt: &str,
+        role: &SystemRole,
+        params: CompletionParams,
+    ) -> Result<String> {
         let messages = vec![
             ChatMessage::system(role.role.clone()),
             ChatMessage::user(prompt.to_string()),
@@ -34,15 +39,18 @@ impl<'a> DefaultHandler<'a> {
             ollama_options: params.ollama_options,
         };
 
-        if params.stream {
-            self.client
+        let full_text = if params.stream {
+            let text = self
+                .client
                 .stream_chat_completion(&request, &mut |chunk| self.printer.print_chunk(chunk))?;
             self.printer.finish_stream();
+            text
         } else {
-            let full_text = self.client.stream_chat_completion(&request, &mut |_| {})?;
-            self.printer.print_full(&full_text);
-        }
+            let text = self.client.stream_chat_completion(&request, &mut |_| {})?;
+            self.printer.print_full(&text);
+            text
+        };
 
-        Ok(())
+        Ok(full_text)
     }
 }

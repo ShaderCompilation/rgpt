@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{ArgAction, Parser};
 
 /// A fast, local-model-friendly CLI for LLM chat completions.
 #[derive(Parser, Debug)]
@@ -6,6 +6,26 @@ use clap::Parser;
 pub struct Cli {
     /// The prompt to generate completions for.
     pub prompt: Option<String>,
+
+    /// Generate a shell command and offer to execute it.
+    #[arg(short = 's', long, help_heading = "Assistance Options")]
+    pub shell: bool,
+
+    /// Describe a shell command.
+    #[arg(short = 'd', long, help_heading = "Assistance Options")]
+    pub describe_shell: bool,
+
+    /// Generate code only.
+    #[arg(short = 'c', long, help_heading = "Assistance Options")]
+    pub code: bool,
+
+    /// Do not show the shell-command confirmation prompt.
+    #[arg(long, action = ArgAction::SetTrue, help_heading = "Assistance Options")]
+    pub no_interaction: bool,
+
+    /// Open $EDITOR to compose the prompt.
+    #[arg(long, help_heading = "Assistance Options")]
+    pub editor: bool,
 
     /// Large language model to use.
     #[arg(long)]
@@ -81,33 +101,93 @@ impl Cli {
         if self.chat.is_some() && self.repl.is_some() {
             anyhow::bail!("--chat and --repl options cannot be used together.");
         }
+        if [self.shell, self.describe_shell, self.code]
+            .into_iter()
+            .filter(|enabled| *enabled)
+            .count()
+            > 1
+        {
+            anyhow::bail!(
+                "only one of --shell, --describe-shell, and --code can be used at a time"
+            );
+        }
         Ok(())
     }
 }
 
 /// If stdin is not a tty, read piped input until EOF or a line containing
 /// the `__sgpt__eof__` sentinel, then combine it with the CLI prompt argument.
-pub fn resolve_prompt(cli_prompt: Option<&str>) -> anyhow::Result<String> {
+pub struct ResolvedPrompt {
+    pub prompt: String,
+    /// Lines after the sentinel are reserved for a piped REPL session.
+    pub repl_input: Option<Vec<String>>,
+    pub stdin_was_piped: bool,
+}
+
+pub fn resolve_prompt(cli_prompt: Option<&str>) -> anyhow::Result<ResolvedPrompt> {
     use std::io::IsTerminal;
 
     let stdin = std::io::stdin();
     if stdin.is_terminal() {
-        return Ok(cli_prompt.unwrap_or_default().trim().to_string());
+        return Ok(ResolvedPrompt {
+            prompt: cli_prompt.unwrap_or_default().trim().to_string(),
+            repl_input: None,
+            stdin_was_piped: false,
+        });
     }
 
-    let mut piped = String::new();
-    for line in std::io::BufRead::lines(stdin.lock()) {
-        let line = line?;
-        if line.contains("__sgpt__eof__") {
-            break;
-        }
-        piped.push_str(&line);
-        piped.push('\n');
-    }
+    let mut input = String::new();
+    std::io::Read::read_to_string(&mut stdin.lock(), &mut input)?;
+    Ok(resolve_piped_prompt(cli_prompt, &input))
+}
+
+fn resolve_piped_prompt(cli_prompt: Option<&str>, input: &str) -> ResolvedPrompt {
+    let (piped, repl_input) = match input.split_once("__sgpt__eof__") {
+        Some((before, after)) => (
+            before.to_string(),
+            Some(
+                after
+                    .strip_prefix("\r\n")
+                    .or_else(|| after.strip_prefix('\n'))
+                    .unwrap_or(after)
+                    .lines()
+                    .map(|line| line.trim_end_matches('\r').to_string())
+                    .collect(),
+            ),
+        ),
+        None => (input.to_string(), None),
+    };
 
     let combined = match cli_prompt {
         Some(p) if !p.is_empty() => format!("{piped}\n\n{p}"),
         _ => piped,
     };
-    Ok(combined.trim().to_string())
+    ResolvedPrompt {
+        prompt: combined.trim().to_string(),
+        repl_input,
+        stdin_was_piped: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn assistance_modes_are_exclusive() {
+        let cli = Cli::try_parse_from(["rgpt", "--shell", "--code"]);
+        assert!(cli.is_ok());
+        assert!(cli.unwrap().validate().is_err());
+    }
+
+    #[test]
+    fn sentinel_preserves_repl_input_after_initial_prompt() {
+        let resolved = super::resolve_piped_prompt(
+            Some("follow-up"),
+            "initial context\n__sgpt__eof__\nfirst turn\nexit()\n",
+        );
+        assert_eq!(resolved.prompt, "initial context\n\n\nfollow-up");
+        assert_eq!(resolved.repl_input.unwrap(), vec!["first turn", "exit()"]);
+    }
 }

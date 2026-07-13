@@ -2,26 +2,41 @@ use std::io::Write;
 
 use anyhow::Result;
 
-use super::{ChatHandler, CompletionParams};
+use super::{ChatHandler, CompletionParams, DefaultHandler};
 use crate::client::LlmClient;
 use crate::role::SystemRole;
+use crate::shell_cmd;
 
 /// Interactive read-eval-print loop layered on top of a ChatHandler: prompts
 /// the user repeatedly, feeding each line (or `"""`-delimited block) through
 /// as a chat turn until `exit()` or EOF/Ctrl+C.
 pub struct ReplHandler<'a> {
     chat: ChatHandler<'a>,
+    client: &'a dyn LlmClient,
+    color: String,
+    shell_mode: bool,
+    piped_input: Option<std::vec::IntoIter<String>>,
 }
 
 impl<'a> ReplHandler<'a> {
-    pub fn new(client: &'a dyn LlmClient, color: String, chat_id: String) -> Result<Self> {
+    pub fn new(
+        client: &'a dyn LlmClient,
+        color: String,
+        chat_id: String,
+        shell_mode: bool,
+        piped_input: Option<Vec<String>>,
+    ) -> Result<Self> {
         Ok(Self {
-            chat: ChatHandler::new(client, color, chat_id)?,
+            chat: ChatHandler::new(client, color.clone(), chat_id)?,
+            client,
+            color,
+            shell_mode,
+            piped_input: piped_input.map(Vec::into_iter),
         })
     }
 
     pub fn handle(
-        &self,
+        &mut self,
         init_prompt: &str,
         role: &SystemRole,
         explicit_role: bool,
@@ -35,7 +50,13 @@ impl<'a> ReplHandler<'a> {
             println!("─────────────────────");
         }
 
-        println!("Entering REPL mode, press Ctrl+C to exit.");
+        if self.shell_mode {
+            println!(
+                "Entering shell REPL mode; use e to execute or d to describe the last command. Press Ctrl+C to exit."
+            );
+        } else {
+            println!("Entering REPL mode, press Ctrl+C to exit.");
+        }
 
         let mut init_prompt = init_prompt.to_string();
         if !init_prompt.is_empty() {
@@ -44,27 +65,48 @@ impl<'a> ReplHandler<'a> {
             println!("─────────────");
         }
 
+        let mut last_completion = String::new();
         loop {
             print!(">>> ");
             std::io::stdout().flush().ok();
 
-            let mut line = String::new();
-            if std::io::stdin().read_line(&mut line)? == 0 {
-                break;
-            }
-            let mut prompt = line.trim_end_matches('\n').to_string();
+            let mut prompt = if let Some(input) = self.piped_input.as_mut() {
+                match input.next() {
+                    Some(line) => line,
+                    None => break,
+                }
+            } else {
+                let mut line = String::new();
+                if std::io::stdin().read_line(&mut line)? == 0 {
+                    break;
+                }
+                line.trim_end_matches('\n').to_string()
+            };
             if prompt == "\"\"\"" {
                 prompt = self.read_multiline()?;
             }
             if prompt == "exit()" {
                 break;
             }
+            if self.shell_mode && prompt == "e" {
+                shell_cmd::run(&last_completion)?;
+                continue;
+            }
+            if self.shell_mode && prompt == "d" {
+                let descriptor = SystemRole::get(crate::role::DESCRIBE_SHELL_ROLE_NAME)?;
+                DefaultHandler::new(self.client, self.color.clone()).handle(
+                    &last_completion,
+                    &descriptor,
+                    params.clone(),
+                )?;
+                continue;
+            }
             if !init_prompt.is_empty() {
                 prompt = format!("{init_prompt}\n\n\n{prompt}");
                 init_prompt.clear();
             }
 
-            self.chat.handle(
+            last_completion = self.chat.handle(
                 &prompt,
                 role,
                 explicit_role,
