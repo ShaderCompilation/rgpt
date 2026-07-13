@@ -14,6 +14,8 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("REQUEST_TIMEOUT", "60"),
     ("API_BASE_URL", "default"),
     ("DISABLE_STREAMING", "false"),
+    ("OS_NAME", "auto"),
+    ("SHELL_NAME", "auto"),
 ];
 
 pub struct Config {

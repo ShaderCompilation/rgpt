@@ -81,8 +81,8 @@ impl OpenAiCompatClient {
             if data == "[DONE]" {
                 break;
             }
-            let chunk: Chunk = serde_json::from_str(data)
-                .with_context(|| format!("parsing SSE chunk: {data}"))?;
+            let chunk: Chunk =
+                serde_json::from_str(data).with_context(|| format!("parsing SSE chunk: {data}"))?;
             let Some(choice) = chunk.choices.into_iter().next() else {
                 continue;
             };

@@ -18,6 +18,22 @@ pub struct Cli {
     /// Limits highest probable tokens (0.0-1.0).
     #[arg(long, default_value_t = 1.0)]
     pub top_p: f64,
+
+    /// System role to use for the model.
+    #[arg(long, help_heading = "Role Options")]
+    pub role: Option<String>,
+
+    /// Create a new role (prompts for a description).
+    #[arg(long, value_name = "NAME", help_heading = "Role Options")]
+    pub create_role: Option<String>,
+
+    /// Show an existing role's content.
+    #[arg(long, value_name = "NAME", help_heading = "Role Options")]
+    pub show_role: Option<String>,
+
+    /// List all available roles.
+    #[arg(long, help_heading = "Role Options")]
+    pub list_roles: bool,
 }
 
 impl Cli {
