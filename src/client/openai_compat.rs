@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-use super::ChatRequest;
+use super::{ChatRequest, LlmClient};
 
 pub struct OpenAiCompatClient {
     agent: ureq::Agent,
@@ -41,13 +41,13 @@ impl OpenAiCompatClient {
             api_key: api_key.to_string(),
         }
     }
+}
 
-    /// Streams a chat completion, invoking `on_delta` for each content chunk
-    /// as it arrives. Returns the full concatenated completion text.
-    pub fn stream_chat_completion(
+impl LlmClient for OpenAiCompatClient {
+    fn stream_chat_completion(
         &self,
         request: &ChatRequest,
-        mut on_delta: impl FnMut(&str),
+        on_delta: &mut dyn FnMut(&str),
     ) -> Result<String> {
         let url = format!("{}/chat/completions", self.base_url);
         let response = self

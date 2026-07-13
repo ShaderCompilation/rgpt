@@ -17,6 +17,12 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("OS_NAME", "auto"),
     ("SHELL_NAME", "auto"),
     ("CHAT_CACHE_LENGTH", "100"),
+    ("USE_OLLAMA", "false"),
+    ("OLLAMA_BASE_URL", "http://localhost:11434"),
+    ("OLLAMA_NUM_CTX", ""),
+    ("OLLAMA_NUM_PREDICT", ""),
+    ("OLLAMA_KEEP_ALIVE", ""),
+    ("MAX_CONTEXT_TOKENS", "0"),
 ];
 
 pub struct Config {
@@ -25,12 +31,15 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn load() -> Result<Config> {
+    /// `skip_api_key_prompt` avoids asking for an OpenAI API key on first run
+    /// when the user has already indicated (e.g. via `--ollama`) that they
+    /// only intend to talk to a local model.
+    pub fn load(skip_api_key_prompt: bool) -> Result<Config> {
         let path = config_path()?;
         if path.exists() {
             Self::load_existing(path)
         } else {
-            Self::bootstrap(path)
+            Self::bootstrap(path, skip_api_key_prompt)
         }
     }
 
@@ -63,7 +72,7 @@ impl Config {
         Ok(config)
     }
 
-    fn bootstrap(path: PathBuf) -> Result<Config> {
+    fn bootstrap(path: PathBuf, skip_api_key_prompt: bool) -> Result<Config> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("creating config directory {}", parent.display()))?;
@@ -74,7 +83,7 @@ impl Config {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
 
-        if std::env::var("OPENAI_API_KEY").is_err() {
+        if !skip_api_key_prompt && std::env::var("OPENAI_API_KEY").is_err() {
             let key = rpassword::prompt_password("Please enter your OpenAI API key: ")
                 .context("reading API key from prompt")?;
             values.insert("OPENAI_API_KEY".to_string(), key);
@@ -109,6 +118,18 @@ impl Config {
             .filter(|v| !v.is_empty())
             .cloned()
             .with_context(|| format!("missing config key: {key}"))
+    }
+
+    /// Like `get`, but returns `None` instead of erroring when the key is
+    /// unset or blank — for genuinely optional settings (Ollama tuning knobs
+    /// most users never touch) where absence isn't a misconfiguration.
+    pub fn get_opt(&self, key: &str) -> Option<String> {
+        if let Ok(v) = std::env::var(key)
+            && !v.is_empty()
+        {
+            return Some(v);
+        }
+        self.values.get(key).filter(|v| !v.is_empty()).cloned()
     }
 }
 

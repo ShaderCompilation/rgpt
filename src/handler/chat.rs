@@ -1,22 +1,22 @@
 use anyhow::{Result, bail};
 
 use super::CompletionParams;
-use crate::chat::ChatSession;
-use crate::client::{ChatMessage, ChatRequest, OpenAiCompatClient};
+use crate::chat::{ChatSession, truncate_by_token_budget};
+use crate::client::{ChatMessage, ChatRequest, LlmClient};
 use crate::render::TextPrinter;
 use crate::role::SystemRole;
 
 /// Chat handler: like DefaultHandler, but loads/persists a named message
 /// history around each turn instead of sending a single isolated exchange.
 pub struct ChatHandler<'a> {
-    client: &'a OpenAiCompatClient,
+    client: &'a dyn LlmClient,
     printer: TextPrinter,
     color: String,
     chat_id: String,
 }
 
 impl<'a> ChatHandler<'a> {
-    pub fn new(client: &'a OpenAiCompatClient, color: String, chat_id: String) -> Result<Self> {
+    pub fn new(client: &'a dyn LlmClient, color: String, chat_id: String) -> Result<Self> {
         if chat_id == "temp" {
             // "temp" is a quick, throwaway session: wipe any leftover history
             // from a previous run before this one starts.
@@ -75,6 +75,7 @@ impl<'a> ChatHandler<'a> {
         explicit_role: bool,
         params: CompletionParams,
         cache_length: usize,
+        max_context_tokens: usize,
     ) -> Result<String> {
         let (effective_role, mut messages) = self.load_role(role, explicit_role)?;
         if messages.is_empty() {
@@ -82,22 +83,28 @@ impl<'a> ChatHandler<'a> {
         }
         messages.push(ChatMessage::user(prompt.to_string()));
 
+        // Truncated only for the outgoing request — the persisted history
+        // below keeps everything (subject to `cache_length`), so a tight
+        // token budget for a small local model doesn't discard saved turns.
+        let request_messages = truncate_by_token_budget(messages.clone(), max_context_tokens);
+
         let request = ChatRequest {
             model: params.model,
             temperature: params.temperature,
             top_p: params.top_p,
-            messages: messages.clone(),
+            messages: request_messages,
             stream: true,
+            ollama_options: params.ollama_options,
         };
 
         let full_text = if params.stream {
             let text = self
                 .client
-                .stream_chat_completion(&request, |chunk| self.printer.print_chunk(chunk))?;
+                .stream_chat_completion(&request, &mut |chunk| self.printer.print_chunk(chunk))?;
             self.printer.finish_stream();
             text
         } else {
-            let text = self.client.stream_chat_completion(&request, |_| {})?;
+            let text = self.client.stream_chat_completion(&request, &mut |_| {})?;
             self.printer.print_full(&text);
             text
         };

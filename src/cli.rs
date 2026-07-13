@@ -50,6 +50,22 @@ pub struct Cli {
     /// List all existing chat ids.
     #[arg(long, help_heading = "Chat Options")]
     pub list_chats: bool,
+
+    /// Use Ollama's native /api/chat endpoint instead of the OpenAI-compatible API.
+    #[arg(long, help_heading = "Ollama Options")]
+    pub ollama: bool,
+
+    /// Ollama: context window size in tokens (num_ctx).
+    #[arg(long, help_heading = "Ollama Options")]
+    pub num_ctx: Option<u32>,
+
+    /// Ollama: max tokens to generate (num_predict).
+    #[arg(long, help_heading = "Ollama Options")]
+    pub num_predict: Option<i32>,
+
+    /// Ollama: how long to keep the model loaded after the request, e.g. "5m", "-1" for forever.
+    #[arg(long, help_heading = "Ollama Options")]
+    pub keep_alive: Option<String>,
 }
 
 impl Cli {

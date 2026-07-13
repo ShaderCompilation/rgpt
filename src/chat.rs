@@ -87,3 +87,100 @@ impl ChatSession {
         Ok(base.join("rgpt").join("chat_cache"))
     }
 }
+
+/// Rough token estimate for text, used in place of a real tokenizer since
+/// the target model (and thus its tokenizer) varies per request. ~4 chars/token
+/// is a common approximation for English text; good enough for a truncation
+/// safety margin, not exact accounting.
+fn estimate_tokens(text: &str) -> usize {
+    text.len().div_ceil(4).max(1)
+}
+
+/// Trims `messages` to fit within `budget` estimated tokens for the outgoing
+/// request, always keeping a leading system message and otherwise dropping
+/// the oldest messages first. A budget of 0 disables truncation (returns
+/// `messages` unchanged) — the default, since most remote models have context
+/// windows large enough that this never matters, but small local models do.
+pub fn truncate_by_token_budget(messages: Vec<ChatMessage>, budget: usize) -> Vec<ChatMessage> {
+    if budget == 0 || messages.is_empty() {
+        return messages;
+    }
+
+    let has_system = messages[0].role == "system";
+    let head: Vec<ChatMessage> = if has_system {
+        vec![messages[0].clone()]
+    } else {
+        Vec::new()
+    };
+    let rest = &messages[head.len()..];
+
+    let head_tokens: usize = head.iter().map(|m| estimate_tokens(&m.content)).sum();
+    if head_tokens >= budget {
+        return head;
+    }
+
+    let mut kept: Vec<ChatMessage> = Vec::new();
+    let mut used = head_tokens;
+    for message in rest.iter().rev() {
+        let tokens = estimate_tokens(&message.content);
+        if used + tokens > budget && !kept.is_empty() {
+            break;
+        }
+        used += tokens;
+        kept.push(message.clone());
+    }
+    kept.reverse();
+
+    let mut result = head;
+    result.extend(kept);
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn msg(role: &str, content: &str) -> ChatMessage {
+        ChatMessage {
+            role: role.to_string(),
+            content: content.to_string(),
+        }
+    }
+
+    #[test]
+    fn zero_budget_disables_truncation() {
+        let messages = vec![msg("system", "sys"), msg("user", "hello")];
+        assert_eq!(truncate_by_token_budget(messages.clone(), 0), messages);
+    }
+
+    #[test]
+    fn keeps_system_and_drops_oldest_first() {
+        let messages = vec![
+            msg("system", "s"),                   // ~1 token
+            msg("user", "a".repeat(40).as_str()), // ~10 tokens, oldest turn
+            msg("assistant", "b".repeat(40).as_str()),
+            msg("user", "c".repeat(40).as_str()), // most recent turn
+        ];
+        // Budget fits system + only the last message.
+        let result = truncate_by_token_budget(messages.clone(), 12);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].role, "system");
+        assert_eq!(result[1].content, messages[3].content);
+    }
+
+    #[test]
+    fn always_keeps_at_least_one_trailing_message() {
+        let messages = vec![msg("system", "s"), msg("user", &"x".repeat(1000))];
+        // Budget smaller than the single trailing message: still kept, not dropped to empty.
+        let result = truncate_by_token_budget(messages.clone(), 5);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[1].content, messages[1].content);
+    }
+
+    #[test]
+    fn no_system_message_still_works() {
+        let messages = vec![msg("user", "a"), msg("assistant", "b")];
+        let result = truncate_by_token_budget(messages.clone(), 100);
+        assert_eq!(result, messages);
+    }
+}

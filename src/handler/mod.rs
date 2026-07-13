@@ -6,6 +6,8 @@ pub use chat::{ChatHandler, show_chat};
 pub use default::DefaultHandler;
 pub use repl::ReplHandler;
 
+use crate::client::OllamaOptions;
+
 /// Model-invocation options shared by every handler, bundled to keep
 /// `handle()` signatures from accumulating unrelated positional args.
 #[derive(Clone)]
@@ -14,4 +16,6 @@ pub struct CompletionParams {
     pub temperature: f64,
     pub top_p: f64,
     pub stream: bool,
+    /// Ignored unless the active client is `OllamaClient`.
+    pub ollama_options: OllamaOptions,
 }

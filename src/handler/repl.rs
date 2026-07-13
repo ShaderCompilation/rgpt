@@ -3,7 +3,7 @@ use std::io::Write;
 use anyhow::Result;
 
 use super::{ChatHandler, CompletionParams};
-use crate::client::OpenAiCompatClient;
+use crate::client::LlmClient;
 use crate::role::SystemRole;
 
 /// Interactive read-eval-print loop layered on top of a ChatHandler: prompts
@@ -14,7 +14,7 @@ pub struct ReplHandler<'a> {
 }
 
 impl<'a> ReplHandler<'a> {
-    pub fn new(client: &'a OpenAiCompatClient, color: String, chat_id: String) -> Result<Self> {
+    pub fn new(client: &'a dyn LlmClient, color: String, chat_id: String) -> Result<Self> {
         Ok(Self {
             chat: ChatHandler::new(client, color, chat_id)?,
         })
@@ -27,6 +27,7 @@ impl<'a> ReplHandler<'a> {
         explicit_role: bool,
         params: CompletionParams,
         cache_length: usize,
+        max_context_tokens: usize,
     ) -> Result<()> {
         if self.chat.exists()? {
             println!("─── Chat History ───");
@@ -63,8 +64,14 @@ impl<'a> ReplHandler<'a> {
                 init_prompt.clear();
             }
 
-            self.chat
-                .handle(&prompt, role, explicit_role, params.clone(), cache_length)?;
+            self.chat.handle(
+                &prompt,
+                role,
+                explicit_role,
+                params.clone(),
+                cache_length,
+                max_context_tokens,
+            )?;
             println!();
         }
         Ok(())
