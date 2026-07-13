@@ -1,0 +1,134 @@
+use anyhow::{Result, bail};
+
+use super::CompletionParams;
+use crate::chat::ChatSession;
+use crate::client::{ChatMessage, ChatRequest, OpenAiCompatClient};
+use crate::render::TextPrinter;
+use crate::role::SystemRole;
+
+/// Chat handler: like DefaultHandler, but loads/persists a named message
+/// history around each turn instead of sending a single isolated exchange.
+pub struct ChatHandler<'a> {
+    client: &'a OpenAiCompatClient,
+    printer: TextPrinter,
+    color: String,
+    chat_id: String,
+}
+
+impl<'a> ChatHandler<'a> {
+    pub fn new(client: &'a OpenAiCompatClient, color: String, chat_id: String) -> Result<Self> {
+        if chat_id == "temp" {
+            // "temp" is a quick, throwaway session: wipe any leftover history
+            // from a previous run before this one starts.
+            ChatSession::delete(&chat_id)?;
+        }
+        Ok(Self {
+            client,
+            printer: TextPrinter::new(color.clone()),
+            color,
+            chat_id,
+        })
+    }
+
+    pub fn exists(&self) -> Result<bool> {
+        Ok(ChatSession::load(&self.chat_id)?.is_some_and(|s| !s.messages.is_empty()))
+    }
+
+    pub fn show_history(&self) -> Result<()> {
+        show_chat(&self.chat_id, &self.color)
+    }
+
+    /// Resolves which role to use for this turn and the prior messages, if any.
+    /// If the chat already exists and the caller passed an explicit `--role`
+    /// that differs from the one it was initiated with, that's a conflict.
+    /// Otherwise, an unspecified role falls back to whatever the chat was
+    /// started with, rather than the ambient default role.
+    fn load_role(
+        &self,
+        role: &SystemRole,
+        explicit_role: bool,
+    ) -> Result<(SystemRole, Vec<ChatMessage>)> {
+        match ChatSession::load(&self.chat_id)? {
+            Some(session) => {
+                if explicit_role && role.name != session.role_name {
+                    bail!(
+                        "Can't change chat role to \"{}\" since it was initiated as \"{}\" chat.",
+                        role.name,
+                        session.role_name
+                    );
+                }
+                let effective_role = if explicit_role {
+                    role.clone()
+                } else {
+                    SystemRole::get(&session.role_name)?
+                };
+                Ok((effective_role, session.messages))
+            }
+            None => Ok((role.clone(), Vec::new())),
+        }
+    }
+
+    pub fn handle(
+        &self,
+        prompt: &str,
+        role: &SystemRole,
+        explicit_role: bool,
+        params: CompletionParams,
+        cache_length: usize,
+    ) -> Result<String> {
+        let (effective_role, mut messages) = self.load_role(role, explicit_role)?;
+        if messages.is_empty() {
+            messages.push(ChatMessage::system(effective_role.role.clone()));
+        }
+        messages.push(ChatMessage::user(prompt.to_string()));
+
+        let request = ChatRequest {
+            model: params.model,
+            temperature: params.temperature,
+            top_p: params.top_p,
+            messages: messages.clone(),
+            stream: true,
+        };
+
+        let full_text = if params.stream {
+            let text = self
+                .client
+                .stream_chat_completion(&request, |chunk| self.printer.print_chunk(chunk))?;
+            self.printer.finish_stream();
+            text
+        } else {
+            let text = self.client.stream_chat_completion(&request, |_| {})?;
+            self.printer.print_full(&text);
+            text
+        };
+
+        messages.push(ChatMessage::assistant(full_text.clone()));
+        ChatSession {
+            role_name: effective_role.name.clone(),
+            messages,
+        }
+        .save(&self.chat_id, cache_length)?;
+
+        Ok(full_text)
+    }
+}
+
+/// Prints a chat's message history, alternating colors by index the same
+/// way shell_gpt's plain-text (non-markdown) chat display does.
+pub fn show_chat(chat_id: &str, color: &str) -> Result<()> {
+    let Some(session) = ChatSession::load(chat_id)? else {
+        bail!("Chat \"{chat_id}\" not found.");
+    };
+
+    let primary = TextPrinter::new(color.to_string());
+    let secondary = TextPrinter::new("green".to_string());
+    for (i, message) in session.messages.iter().enumerate() {
+        let line = format!("{}: {}", message.role, message.content);
+        if i % 2 == 0 {
+            primary.print_full(&line);
+        } else {
+            secondary.print_full(&line);
+        }
+    }
+    Ok(())
+}

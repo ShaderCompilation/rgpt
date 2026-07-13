@@ -16,6 +16,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("DISABLE_STREAMING", "false"),
     ("OS_NAME", "auto"),
     ("SHELL_NAME", "auto"),
+    ("CHAT_CACHE_LENGTH", "100"),
 ];
 
 pub struct Config {

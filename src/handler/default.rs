@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use super::CompletionParams;
 use crate::client::{ChatMessage, ChatRequest, OpenAiCompatClient};
 use crate::render::TextPrinter;
 use crate::role::SystemRole;
@@ -18,35 +19,21 @@ impl<'a> DefaultHandler<'a> {
         }
     }
 
-    pub fn handle(
-        &self,
-        prompt: &str,
-        role: &SystemRole,
-        model: String,
-        temperature: f64,
-        top_p: f64,
-        stream: bool,
-    ) -> Result<()> {
+    pub fn handle(&self, prompt: &str, role: &SystemRole, params: CompletionParams) -> Result<()> {
         let messages = vec![
-            ChatMessage {
-                role: "system".to_string(),
-                content: role.role.clone(),
-            },
-            ChatMessage {
-                role: "user".to_string(),
-                content: prompt.to_string(),
-            },
+            ChatMessage::system(role.role.clone()),
+            ChatMessage::user(prompt.to_string()),
         ];
 
         let request = ChatRequest {
-            model,
-            temperature,
-            top_p,
+            model: params.model,
+            temperature: params.temperature,
+            top_p: params.top_p,
             messages,
             stream: true,
         };
 
-        if stream {
+        if params.stream {
             self.client
                 .stream_chat_completion(&request, |chunk| self.printer.print_chunk(chunk))?;
             self.printer.finish_stream();

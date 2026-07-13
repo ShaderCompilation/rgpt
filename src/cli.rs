@@ -34,6 +34,22 @@ pub struct Cli {
     /// List all available roles.
     #[arg(long, help_heading = "Role Options")]
     pub list_roles: bool,
+
+    /// Follow conversation with id, use "temp" for a quick session.
+    #[arg(long, value_name = "ID", help_heading = "Chat Options")]
+    pub chat: Option<String>,
+
+    /// Start a REPL (read-eval-print loop) session with id, use "temp" for a quick session.
+    #[arg(long, value_name = "ID", help_heading = "Chat Options")]
+    pub repl: Option<String>,
+
+    /// Show all messages from the given chat id.
+    #[arg(long, value_name = "ID", help_heading = "Chat Options")]
+    pub show_chat: Option<String>,
+
+    /// List all existing chat ids.
+    #[arg(long, help_heading = "Chat Options")]
+    pub list_chats: bool,
 }
 
 impl Cli {
@@ -45,6 +61,9 @@ impl Cli {
         }
         if !(0.0..=1.0).contains(&self.top_p) {
             anyhow::bail!("--top-p must be between 0.0 and 1.0, got {}", self.top_p);
+        }
+        if self.chat.is_some() && self.repl.is_some() {
+            anyhow::bail!("--chat and --repl options cannot be used together.");
         }
         Ok(())
     }
