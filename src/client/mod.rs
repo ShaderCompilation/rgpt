@@ -6,11 +6,16 @@ pub use openai_compat::OpenAiCompatClient;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 impl ChatMessage {
@@ -18,6 +23,8 @@ impl ChatMessage {
         Self {
             role: "system".to_string(),
             content,
+            tool_calls: None,
+            tool_call_id: None,
         }
     }
 
@@ -25,6 +32,8 @@ impl ChatMessage {
         Self {
             role: "user".to_string(),
             content,
+            tool_calls: None,
+            tool_call_id: None,
         }
     }
 
@@ -32,8 +41,57 @@ impl ChatMessage {
         Self {
             role: "assistant".to_string(),
             content,
+            tool_calls: None,
+            tool_call_id: None,
         }
     }
+
+    pub fn assistant_tool_calls(content: String, tool_calls: Vec<ToolCall>) -> Self {
+        Self {
+            role: "assistant".to_string(),
+            content,
+            tool_calls: Some(tool_calls),
+            tool_call_id: None,
+        }
+    }
+
+    pub fn tool(tool_call_id: String, content: String) -> Self {
+        Self {
+            role: "tool".to_string(),
+            content,
+            tool_calls: None,
+            tool_call_id: Some(tool_call_id),
+        }
+    }
+}
+
+/// A model-requested function invocation. Arguments remain JSON until the
+/// registry validates them, so malformed model output never reaches a tool.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: Value,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ToolDefinition {
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    pub function: ToolFunctionDefinition,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ToolFunctionDefinition {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub parameters: Value,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Completion {
+    pub content: String,
+    pub tool_calls: Vec<ToolCall>,
 }
 
 /// Ollama-specific generation knobs. Ignored by the OpenAI-compatible client;
@@ -52,6 +110,8 @@ pub struct ChatRequest {
     pub top_p: f64,
     pub messages: Vec<ChatMessage>,
     pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolDefinition>>,
     #[serde(skip)]
     pub ollama_options: OllamaOptions,
 }
@@ -66,5 +126,5 @@ pub trait LlmClient {
         &self,
         request: &ChatRequest,
         on_delta: &mut dyn FnMut(&str),
-    ) -> Result<String>;
+    ) -> Result<Completion>;
 }

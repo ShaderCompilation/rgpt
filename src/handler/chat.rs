@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 
 use super::CompletionParams;
 use crate::chat::{ChatSession, truncate_by_token_budget};
-use crate::client::{ChatMessage, ChatRequest, LlmClient};
+use crate::client::{ChatMessage, LlmClient};
 use crate::render::TextPrinter;
 use crate::role::SystemRole;
 
@@ -87,29 +87,11 @@ impl<'a> ChatHandler<'a> {
         // below keeps everything (subject to `cache_length`), so a tight
         // token budget for a small local model doesn't discard saved turns.
         let request_messages = truncate_by_token_budget(messages.clone(), max_context_tokens);
-
-        let request = ChatRequest {
-            model: params.model,
-            temperature: params.temperature,
-            top_p: params.top_p,
-            messages: request_messages,
-            stream: true,
-            ollama_options: params.ollama_options,
-        };
-
-        let full_text = if params.stream {
-            let text = self
-                .client
-                .stream_chat_completion(&request, &mut |chunk| self.printer.print_chunk(chunk))?;
-            self.printer.finish_stream();
-            text
-        } else {
-            let text = self.client.stream_chat_completion(&request, &mut |_| {})?;
-            self.printer.print_full(&text);
-            text
-        };
-
-        messages.push(ChatMessage::assistant(full_text.clone()));
+        let (full_text, request_history) =
+            super::complete_with_tools(self.client, &self.printer, request_messages, &params)?;
+        // Preserve the exact history the model saw, including tool calls and
+        // their results, so follow-up turns have the necessary context.
+        messages = request_history;
         ChatSession {
             role_name: effective_role.name.clone(),
             messages,

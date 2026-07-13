@@ -2,9 +2,10 @@ use std::io::{BufRead, BufReader};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
-use super::{ChatRequest, LlmClient};
+use super::{ChatRequest, Completion, LlmClient, ToolCall};
 
 pub struct OpenAiCompatClient {
     agent: ureq::Agent,
@@ -20,6 +21,77 @@ struct ChunkChoice {
 #[derive(Deserialize, Default)]
 struct ChunkDelta {
     content: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<WireToolCall>,
+}
+
+#[derive(Deserialize)]
+struct WireToolCall {
+    #[serde(default)]
+    index: usize,
+    #[serde(default)]
+    id: String,
+    function: WireFunction,
+}
+#[derive(Deserialize)]
+struct WireFunction {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    arguments: String,
+}
+
+#[derive(Serialize)]
+struct OpenAiRequest<'a> {
+    model: &'a str,
+    temperature: f64,
+    top_p: f64,
+    messages: Vec<OpenAiMessage>,
+    stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<&'a [super::ToolDefinition]>,
+}
+#[derive(Serialize)]
+struct OpenAiMessage {
+    role: String,
+    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<OpenAiToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+}
+#[derive(Serialize)]
+struct OpenAiToolCall {
+    id: String,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    function: OpenAiFunction,
+}
+#[derive(Serialize)]
+struct OpenAiFunction {
+    name: String,
+    arguments: String,
+}
+
+fn openai_message(message: &super::ChatMessage) -> OpenAiMessage {
+    OpenAiMessage {
+        role: message.role.clone(),
+        content: message.content.clone(),
+        tool_call_id: message.tool_call_id.clone(),
+        tool_calls: message.tool_calls.as_ref().map(|calls| {
+            calls
+                .iter()
+                .map(|call| OpenAiToolCall {
+                    id: call.id.clone(),
+                    kind: "function",
+                    function: OpenAiFunction {
+                        name: call.name.clone(),
+                        arguments: call.arguments.to_string(),
+                    },
+                })
+                .collect()
+        }),
+    }
 }
 
 #[derive(Deserialize)]
@@ -48,13 +120,20 @@ impl LlmClient for OpenAiCompatClient {
         &self,
         request: &ChatRequest,
         on_delta: &mut dyn FnMut(&str),
-    ) -> Result<String> {
+    ) -> Result<Completion> {
         let url = format!("{}/chat/completions", self.base_url);
         let response = self
             .agent
             .post(&url)
             .header("Authorization", &format!("Bearer {}", self.api_key))
-            .send_json(request)
+            .send_json(&OpenAiRequest {
+                model: &request.model,
+                temperature: request.temperature,
+                top_p: request.top_p,
+                messages: request.messages.iter().map(openai_message).collect(),
+                stream: request.stream,
+                tools: request.tools.as_deref(),
+            })
             .with_context(|| format!("sending request to {url}"))?;
 
         let status = response.status();
@@ -66,8 +145,9 @@ impl LlmClient for OpenAiCompatClient {
             bail!("request to {url} failed with status {status}: {body}");
         }
 
-        let mut full_text = String::new();
+        let mut completion = Completion::default();
         let mut line = String::new();
+        let mut pending_calls: BTreeMap<usize, (String, String, String)> = BTreeMap::new();
         loop {
             line.clear();
             let bytes_read = reader.read_line(&mut line).context("reading SSE stream")?;
@@ -90,10 +170,29 @@ impl LlmClient for OpenAiCompatClient {
                 && !content.is_empty()
             {
                 on_delta(&content);
-                full_text.push_str(&content);
+                completion.content.push_str(&content);
+            }
+            for call in choice.delta.tool_calls {
+                let entry = pending_calls.entry(call.index).or_default();
+                if !call.id.is_empty() {
+                    entry.0 = call.id;
+                }
+                if !call.function.name.is_empty() {
+                    entry.1 = call.function.name;
+                }
+                entry.2.push_str(&call.function.arguments);
             }
         }
+        for (_, (id, name, arguments)) in pending_calls {
+            let arguments = serde_json::from_str(&arguments)
+                .with_context(|| format!("parsing arguments for tool {name}"))?;
+            completion.tool_calls.push(ToolCall {
+                id,
+                name,
+                arguments,
+            });
+        }
 
-        Ok(full_text)
+        Ok(completion)
     }
 }

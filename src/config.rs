@@ -23,6 +23,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("OLLAMA_NUM_PREDICT", ""),
     ("OLLAMA_KEEP_ALIVE", ""),
     ("MAX_CONTEXT_TOKENS", "0"),
+    ("CACHE_LENGTH", "100"),
 ];
 
 pub struct Config {

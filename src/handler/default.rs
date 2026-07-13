@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use super::CompletionParams;
-use crate::client::{ChatMessage, ChatRequest, LlmClient};
+use crate::client::{ChatMessage, LlmClient};
 use crate::render::TextPrinter;
 use crate::role::SystemRole;
 
@@ -30,27 +30,6 @@ impl<'a> DefaultHandler<'a> {
             ChatMessage::user(prompt.to_string()),
         ];
 
-        let request = ChatRequest {
-            model: params.model,
-            temperature: params.temperature,
-            top_p: params.top_p,
-            messages,
-            stream: true,
-            ollama_options: params.ollama_options,
-        };
-
-        let full_text = if params.stream {
-            let text = self
-                .client
-                .stream_chat_completion(&request, &mut |chunk| self.printer.print_chunk(chunk))?;
-            self.printer.finish_stream();
-            text
-        } else {
-            let text = self.client.stream_chat_completion(&request, &mut |_| {})?;
-            self.printer.print_full(&text);
-            text
-        };
-
-        Ok(full_text)
+        Ok(super::complete_with_tools(self.client, &self.printer, messages, &params)?.0)
     }
 }

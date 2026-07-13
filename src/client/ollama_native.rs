@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use super::{ChatMessage, ChatRequest, LlmClient};
+use super::{ChatMessage, ChatRequest, Completion, LlmClient, ToolCall};
 
 /// Talks to Ollama's native `/api/chat` endpoint directly, rather than
 /// through its OpenAI-compatible shim, so `num_ctx`/`num_predict`/`keep_alive`
@@ -27,17 +27,68 @@ struct OllamaRequestOptions {
 #[derive(Serialize)]
 struct OllamaRequest<'a> {
     model: &'a str,
-    messages: &'a [ChatMessage],
+    messages: Vec<OllamaMessage>,
     stream: bool,
     options: OllamaRequestOptions,
     #[serde(skip_serializing_if = "Option::is_none")]
     keep_alive: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<&'a [super::ToolDefinition]>,
+}
+
+#[derive(Serialize)]
+struct OllamaMessage {
+    role: String,
+    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<OllamaToolCallRequest>>,
+}
+#[derive(Serialize)]
+struct OllamaToolCallRequest {
+    function: OllamaFunctionRequest,
+}
+#[derive(Serialize)]
+struct OllamaFunctionRequest {
+    name: String,
+    arguments: serde_json::Value,
+}
+
+fn ollama_message(message: &ChatMessage) -> OllamaMessage {
+    OllamaMessage {
+        role: message.role.clone(),
+        content: message.content.clone(),
+        tool_calls: message.tool_calls.as_ref().map(|calls| {
+            calls
+                .iter()
+                .map(|call| OllamaToolCallRequest {
+                    function: OllamaFunctionRequest {
+                        name: call.name.clone(),
+                        arguments: call.arguments.clone(),
+                    },
+                })
+                .collect()
+        }),
+    }
 }
 
 #[derive(Deserialize, Default)]
 struct OllamaChunkMessage {
     #[serde(default)]
     content: String,
+    #[serde(default)]
+    tool_calls: Vec<OllamaToolCall>,
+}
+
+#[derive(Deserialize)]
+struct OllamaToolCall {
+    #[serde(default)]
+    id: String,
+    function: OllamaFunction,
+}
+#[derive(Deserialize)]
+struct OllamaFunction {
+    name: String,
+    arguments: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -67,11 +118,11 @@ impl LlmClient for OllamaClient {
         &self,
         request: &ChatRequest,
         on_delta: &mut dyn FnMut(&str),
-    ) -> Result<String> {
+    ) -> Result<Completion> {
         let url = format!("{}/api/chat", self.base_url);
         let wire = OllamaRequest {
             model: &request.model,
-            messages: &request.messages,
+            messages: request.messages.iter().map(ollama_message).collect(),
             stream: true,
             options: OllamaRequestOptions {
                 temperature: request.temperature,
@@ -80,6 +131,7 @@ impl LlmClient for OllamaClient {
                 num_predict: request.ollama_options.num_predict,
             },
             keep_alive: request.ollama_options.keep_alive.as_deref(),
+            tools: request.tools.as_deref(),
         };
 
         let response = self
@@ -98,7 +150,7 @@ impl LlmClient for OllamaClient {
         }
 
         // Ollama streams newline-delimited JSON objects (not SSE).
-        let mut full_text = String::new();
+        let mut completion = Completion::default();
         let mut line = String::new();
         loop {
             line.clear();
@@ -116,13 +168,24 @@ impl LlmClient for OllamaClient {
                 .with_context(|| format!("parsing Ollama chunk: {line}"))?;
             if !chunk.message.content.is_empty() {
                 on_delta(&chunk.message.content);
-                full_text.push_str(&chunk.message.content);
+                completion.content.push_str(&chunk.message.content);
+            }
+            for (index, call) in chunk.message.tool_calls.into_iter().enumerate() {
+                completion.tool_calls.push(ToolCall {
+                    id: if call.id.is_empty() {
+                        format!("ollama-{index}")
+                    } else {
+                        call.id
+                    },
+                    name: call.function.name,
+                    arguments: call.function.arguments,
+                });
             }
             if chunk.done {
                 break;
             }
         }
 
-        Ok(full_text)
+        Ok(completion)
     }
 }

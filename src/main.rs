@@ -1,3 +1,4 @@
+mod cache;
 mod chat;
 mod cli;
 mod client;
@@ -7,6 +8,7 @@ mod handler;
 mod render;
 mod role;
 mod shell_cmd;
+mod tools;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -118,6 +120,11 @@ fn main() -> Result<()> {
         top_p: cli.top_p,
         stream,
         ollama_options,
+        no_interaction: cli.no_interaction,
+        cache_length: config
+            .get("CACHE_LENGTH")?
+            .parse()
+            .context("parsing CACHE_LENGTH from config")?,
     };
 
     let client: Box<dyn LlmClient> = if use_ollama {
