@@ -34,6 +34,7 @@ struct OllamaRequest<'a> {
     keep_alive: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<&'a [super::ToolDefinition]>,
+    think: bool,
 }
 
 #[derive(Serialize)]
@@ -132,6 +133,7 @@ impl LlmClient for OllamaClient {
             },
             keep_alive: request.ollama_options.keep_alive.as_deref(),
             tools: request.tools.as_deref(),
+            think: request.think,
         };
 
         let response = self

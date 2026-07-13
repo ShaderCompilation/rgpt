@@ -50,6 +50,19 @@ struct OpenAiRequest<'a> {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<&'a [super::ToolDefinition]>,
+    /// OpenAI reasoning-model convention. Servers that don't recognize this
+    /// field ignore it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<&'static str>,
+    /// vLLM/LM Studio convention for toggling a chat template's thinking
+    /// block (e.g. Qwen3). Servers that don't recognize this field ignore it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chat_template_kwargs: Option<ChatTemplateKwargs>,
+}
+
+#[derive(Serialize)]
+struct ChatTemplateKwargs {
+    enable_thinking: bool,
 }
 #[derive(Serialize)]
 struct OpenAiMessage {
@@ -133,6 +146,12 @@ impl LlmClient for OpenAiCompatClient {
                 messages: request.messages.iter().map(openai_message).collect(),
                 stream: request.stream,
                 tools: request.tools.as_deref(),
+                // Thinking is opt-in; leave the server's default alone
+                // instead of forcing a specific effort level when enabled.
+                reasoning_effort: (!request.think).then_some("minimal"),
+                chat_template_kwargs: (!request.think).then_some(ChatTemplateKwargs {
+                    enable_thinking: false,
+                }),
             })
             .with_context(|| format!("sending request to {url}"))?;
 

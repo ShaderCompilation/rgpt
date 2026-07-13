@@ -105,6 +105,17 @@ alias srgpt-fast='rgpt --ollama --model qwen3:4b -s'
 alias srgpt-code='rgpt --ollama --model qwen2.5-coder:7b -s'
 ```
 
+### Thinking / reasoning models
+
+Thinking/reasoning output is disabled by default for models that support it (e.g. `qwen3`, `deepseek-r1`, OpenAI's reasoning models), since it adds latency and clutters the terminal. Pass `--think` to re-enable it:
+
+```sh
+rgpt --ollama --model qwen3.5:9b --think "Walk through the tricky part of this algorithm"
+rgpt --model o4-mini --think "Walk through the tricky part of this algorithm"
+```
+
+With Ollama's native API, this maps to the `think` request field. Against OpenAI-compatible servers, `rgpt` sends both `reasoning_effort: "minimal"` and `chat_template_kwargs: {"enable_thinking": false}` when thinking is off, covering OpenAI's reasoning-effort convention and the vLLM/LM Studio chat-template convention used by models like Qwen3; unsupported fields are ignored by the server. When `--think` is passed, `rgpt` omits both fields and leaves the server's own default in place.
+
 ## Everyday usage
 
 ```sh
@@ -256,6 +267,9 @@ Models
       --num-ctx <TOKENS>
       --num-predict <TOKENS>
       --keep-alive <DURATION>
+
+Reasoning
+      --think                 Enable model thinking/reasoning output (off by default)
 ```
 
 Run `rgpt --help` for the authoritative, installed version of the command reference.

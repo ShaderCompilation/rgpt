@@ -112,6 +112,10 @@ pub struct ChatRequest {
     pub stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolDefinition>>,
+    /// Whether the model should emit thinking/reasoning output. Off by
+    /// default; mapped onto whichever convention the active backend uses.
+    #[serde(skip)]
+    pub think: bool,
     #[serde(skip)]
     pub ollama_options: OllamaOptions,
 }

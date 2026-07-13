@@ -22,6 +22,8 @@ pub struct CompletionParams {
     pub stream: bool,
     /// Ignored unless the active client is `OllamaClient`.
     pub ollama_options: OllamaOptions,
+    /// Whether the model should emit thinking/reasoning output.
+    pub think: bool,
     pub no_interaction: bool,
     pub cache_length: usize,
     /// Shell/describe-shell modes generate a raw command as text and run it
@@ -61,6 +63,7 @@ pub(crate) fn complete_with_tools(
             messages: messages.clone(),
             stream: params.stream,
             tools: params.enable_tools.then(tools::definitions),
+            think: params.think,
             ollama_options: params.ollama_options.clone(),
         };
         let completion = if params.stream {
@@ -148,6 +151,7 @@ mod tests {
                 messages: request.messages.clone(),
                 stream: request.stream,
                 tools: None,
+                think: request.think,
                 ollama_options: request.ollama_options.clone(),
             });
             Ok(response)
@@ -166,6 +170,7 @@ mod tests {
             top_p: 1.0,
             stream: false,
             ollama_options: OllamaOptions::default(),
+            think: false,
             no_interaction: true,
             cache_length: 0,
             enable_tools: true,

@@ -125,6 +125,7 @@ fn main() -> Result<()> {
         top_p: cli.top_p,
         stream,
         ollama_options,
+        think: cli.think,
         no_interaction: cli.no_interaction,
         cache_length: config
             .get("CACHE_LENGTH")?

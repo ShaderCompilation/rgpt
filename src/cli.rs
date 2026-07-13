@@ -94,6 +94,10 @@ pub struct Cli {
     /// Ollama: how long to keep the model loaded after the request, e.g. "5m", "-1" for forever.
     #[arg(long, help_heading = "Ollama Options")]
     pub keep_alive: Option<String>,
+
+    /// Ollama: enable model thinking/reasoning output (disabled by default).
+    #[arg(long, help_heading = "Ollama Options")]
+    pub think: bool,
 }
 
 impl Cli {
