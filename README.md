@@ -227,6 +227,11 @@ OLLAMA_NUM_PREDICT=
 OLLAMA_KEEP_ALIVE=
 ```
 
+`OLLAMA_KEEP_ALIVE` (or `--keep-alive`) accepts Ollama duration values such as
+`10m` or `2h`. Use `0` to unload the model immediately after a request, or `-1`
+to keep it loaded indefinitely. The command-line option overrides the config
+value.
+
 `MAX_CONTEXT_TOKENS=0` disables token-budget truncation. Set a positive value for models with a smaller context window; `rgpt` retains the system message and newest turns using a lightweight estimate. Set `CACHE_LENGTH=0` to disable the response cache. Tool-using responses are never cached.
 
 You can override most request settings per call:

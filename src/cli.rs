@@ -96,7 +96,8 @@ pub struct Cli {
     #[arg(long, help_heading = "Ollama Options")]
     pub num_predict: Option<i32>,
 
-    /// Ollama: how long to keep the model loaded after the request, e.g. "5m", "-1" for forever.
+    /// Ollama: how long to keep the model loaded after the request: "0" to unload,
+    /// a duration such as "5m", or "-1" to keep it loaded indefinitely.
     #[arg(long, help_heading = "Ollama Options")]
     pub keep_alive: Option<String>,
 
