@@ -216,6 +216,13 @@ fn shell_confirmation_loop(
 ) -> Result<()> {
     use std::io::Write;
     loop {
+        // The completion was streamed to the terminal by the handler and could
+        // contain control bytes; reprint it sanitized next to the prompt so the
+        // user always sees the true command they are about to run.
+        println!(
+            "Command: {}",
+            render::sanitize_terminal_line(completion.trim())
+        );
         print!("[E]xecute, [M]odify, [D]escribe, [A]bort: ");
         std::io::stdout().flush().ok();
         let mut answer = String::new();

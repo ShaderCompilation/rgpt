@@ -89,7 +89,12 @@ impl<'a> ReplHandler<'a> {
                 break;
             }
             if self.shell_mode && prompt == "e" {
-                shell_cmd::run(&last_completion)?;
+                // Require a live confirmation on the controlling terminal before
+                // executing. Reading from /dev/tty (not stdin) means a piped REPL
+                // session cannot silently auto-execute a proposed command.
+                if crate::tools::confirm_tty(&last_completion) {
+                    shell_cmd::run(&last_completion)?;
+                }
                 continue;
             }
             if self.shell_mode && prompt == "d" {

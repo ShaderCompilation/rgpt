@@ -3,6 +3,7 @@ use std::io::Write;
 use serde_json::json;
 
 use crate::client::{ToolCall, ToolDefinition, ToolFunctionDefinition};
+use crate::render::sanitize_terminal_line;
 use crate::shell_cmd;
 
 pub const MAX_TOOL_ROUNDS: usize = 8;
@@ -41,11 +42,53 @@ fn execute_shell(call: &ToolCall, no_interaction: bool) -> String {
 }
 
 fn confirm(command: &str) -> bool {
-    print!("Model wants to execute `{command}`. Execute? [y/N] ");
+    // The command is model-controlled; sanitize before display so control bytes
+    // cannot rewrite the prompt and spoof what is being approved.
+    print!(
+        "Model wants to execute `{}`. Execute? [y/N] ",
+        sanitize_terminal_line(command)
+    );
     std::io::stdout().flush().ok();
     let mut answer = String::new();
     std::io::stdin().read_line(&mut answer).ok();
+    is_yes(&answer)
+}
+
+/// True only for an explicit yes; anything else (incl. empty/EOF) denies.
+pub fn is_yes(answer: &str) -> bool {
     matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+}
+
+/// Prompts on the controlling terminal (`/dev/tty`) — not stdin, which may be a
+/// pipe — to confirm executing a model-proposed `command`. Returns false,
+/// denying execution, when there is no controlling terminal to prompt on. The
+/// command is sanitized before display to prevent approval-prompt spoofing.
+pub fn confirm_tty(command: &str) -> bool {
+    use std::io::{BufRead, BufReader};
+
+    let tty = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+    {
+        Ok(tty) => tty,
+        Err(_) => {
+            eprintln!("Refusing to execute: no controlling terminal available to confirm.");
+            return false;
+        }
+    };
+    let mut writer = &tty;
+    let _ = write!(
+        writer,
+        "Execute `{}`? [y/N] ",
+        sanitize_terminal_line(command)
+    );
+    let _ = writer.flush();
+    let mut answer = String::new();
+    if BufReader::new(&tty).read_line(&mut answer).is_err() {
+        return false;
+    }
+    is_yes(&answer)
 }
 
 #[cfg(test)]
@@ -63,5 +106,14 @@ mod tests {
     #[test]
     fn registry_exposes_the_shell_tool() {
         assert_eq!(definitions()[0].function.name, "execute_shell_command");
+    }
+    #[test]
+    fn confirmation_denies_by_default() {
+        for yes in ["y", "yes", "Y", "YES", " yes \n"] {
+            assert!(is_yes(yes), "{yes:?} should confirm");
+        }
+        for no in ["", "\n", "n", "no", "sure", "yep", "yolo"] {
+            assert!(!is_yes(no), "{no:?} should deny");
+        }
     }
 }
