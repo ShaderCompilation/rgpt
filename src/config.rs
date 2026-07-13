@@ -75,7 +75,7 @@ impl Config {
 
     fn bootstrap(path: PathBuf, skip_api_key_prompt: bool) -> Result<Config> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
+            crate::fsutil::create_private_dir(parent)
                 .with_context(|| format!("creating config directory {}", parent.display()))?;
         }
 
@@ -103,7 +103,9 @@ impl Config {
             contents.push_str(value);
             contents.push('\n');
         }
-        fs::write(&self.path, contents)
+        // The config holds the API key in plaintext; write it owner-only (0600)
+        // so other local users can't read it.
+        crate::fsutil::write_private(&self.path, &contents)
             .with_context(|| format!("writing config file {}", self.path.display()))
     }
 

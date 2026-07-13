@@ -5,6 +5,7 @@ mod client;
 mod config;
 mod debug;
 mod editor;
+mod fsutil;
 mod handler;
 mod render;
 mod role;

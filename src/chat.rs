@@ -30,7 +30,7 @@ impl ChatSession {
     /// shell_gpt's count-based truncation.
     pub fn save(&self, chat_id: &str, max_length: usize) -> Result<()> {
         let dir = Self::storage_dir()?;
-        fs::create_dir_all(&dir)
+        crate::fsutil::create_private_dir(&dir)
             .with_context(|| format!("creating chat directory {}", dir.display()))?;
 
         let messages = if self.messages.len() > max_length {
@@ -48,7 +48,8 @@ impl ChatSession {
             messages,
         })
         .context("serializing chat session")?;
-        fs::write(&path, contents).with_context(|| format!("writing chat file {}", path.display()))
+        crate::fsutil::write_private(&path, &contents)
+            .with_context(|| format!("writing chat file {}", path.display()))
     }
 
     pub fn delete(chat_id: &str) -> Result<()> {
@@ -79,6 +80,10 @@ impl ChatSession {
     }
 
     fn path(chat_id: &str) -> Result<PathBuf> {
+        // `chat_id` comes from argv and is used verbatim as a filename; reject
+        // path separators / traversal so load, save, and delete can't escape
+        // the chat directory (e.g. `--show-chat ../../../../etc/passwd`).
+        crate::fsutil::validate_identifier("chat", chat_id)?;
         Ok(Self::storage_dir()?.join(chat_id))
     }
 

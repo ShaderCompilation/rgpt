@@ -25,7 +25,9 @@ impl DebugLog {
         let path = std::env::current_dir()
             .unwrap_or_default()
             .join(format!("rgpt-debug-{ts}.log"));
-        let file = File::create(&path)
+        // The log captures full prompt/response content (including piped file
+        // data); create it owner-only so it isn't world-readable.
+        let file = crate::fsutil::create_private_file(&path)
             .with_context(|| format!("creating debug log file {}", path.display()))?;
         eprintln!("debug: logging to {}", path.display());
         Ok(Self {

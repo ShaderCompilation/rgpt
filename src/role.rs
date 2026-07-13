@@ -59,7 +59,7 @@ impl SystemRole {
     /// Safe to call on every startup.
     pub fn ensure_defaults(config: &Config) -> Result<()> {
         let dir = Self::storage_dir()?;
-        fs::create_dir_all(&dir)
+        crate::fsutil::create_private_dir(&dir)
             .with_context(|| format!("creating role directory {}", dir.display()))?;
 
         let shell = shell_name(config);
@@ -83,6 +83,7 @@ impl SystemRole {
     }
 
     pub fn get(name: &str) -> Result<Self> {
+        crate::fsutil::validate_identifier("role", name)?;
         let path = Self::storage_dir()?.join(format!("{name}.json"));
         if !path.exists() {
             bail!("Role \"{name}\" not found.");
@@ -130,6 +131,7 @@ impl SystemRole {
     }
 
     fn save(&self, confirm_overwrite: bool) -> Result<()> {
+        crate::fsutil::validate_identifier("role", &self.name)?;
         let path = Self::storage_dir()?.join(format!("{}.json", self.name));
 
         if confirm_overwrite && path.exists() {
@@ -148,7 +150,8 @@ impl SystemRole {
         }
 
         let contents = serde_json::to_string(self).context("serializing role")?;
-        fs::write(&path, contents).with_context(|| format!("writing role file {}", path.display()))
+        crate::fsutil::write_private(&path, &contents)
+            .with_context(|| format!("writing role file {}", path.display()))
     }
 }
 

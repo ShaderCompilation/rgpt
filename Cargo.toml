@@ -1,6 +1,6 @@
 [package]
 name = "rgpt"
-version = "0.1.2"
+version = "0.1.3"
 description = "A fast, local-model-friendly CLI for LLM chat completions"
 homepage = "https://github.com/ShaderCompilation/rgpt"
 repository = "https://github.com/ShaderCompilation/rgpt"

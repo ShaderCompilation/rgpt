@@ -32,9 +32,10 @@ impl ResponseCache {
             return Ok(());
         }
         let dir = Self::storage_dir()?;
-        fs::create_dir_all(&dir)
+        crate::fsutil::create_private_dir(&dir)
             .with_context(|| format!("creating cache directory {}", dir.display()))?;
-        fs::write(self.path_for(key)?, value).context("writing response cache entry")?;
+        crate::fsutil::write_private(&self.path_for(key)?, value)
+            .context("writing response cache entry")?;
         self.prune(&dir)
     }
 
